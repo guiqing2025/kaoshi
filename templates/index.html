@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小学升初中考试系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .question-card {
+            margin-bottom: 20px;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .subject-filter {
+            margin-bottom: 20px;
+        }
+        .difficulty-badge {
+            margin-left: 10px;
+        }
+        .exam-header {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+        }
+        .exam-info {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        @media print {
+            .no-print {
+                display: none;
+            }
+            .question-card {
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">小学升初中考试系统</h1>
+        
+        <div class="row subject-filter no-print">
+            <div class="col-md-3">
+                <select class="form-select" id="subjectSelect">
+                    <option value="all">所有学科</option>
+                    <option value="math">数学</option>
+                    <option value="chinese">语文</option>
+                    <option value="english">英语</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="typeSelect">
+                    <option value="all">所有题型</option>
+                    <option value="choice">选择题</option>
+                    <option value="fill">填空题</option>
+                    <option value="calculation">计算题</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="difficultySelect">
+                    <option value="all">所有难度</option>
+                    <option value="1">简单</option>
+                    <option value="2">较简单</option>
+                    <option value="3">中等</option>
+                    <option value="4">较难</option>
+                    <option value="5">困难</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary" onclick="generateExam()">生成试卷</button>
+                    <button class="btn btn-success" onclick="loadPersonalizedQuestions()">获取个性化题目</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="examHeader" style="display: none;" class="exam-header">
+            <h2 class="text-center">小学升初中模拟试卷</h2>
+            <div class="exam-info">
+                <p>考试时间：120分钟</p>
+                <p>总分：100分</p>
+                <p>考生姓名：_________________ 班级：_________________ 座号：_________________</p>
+            </div>
+            <button class="btn btn-secondary no-print" onclick="window.print()">打印试卷</button>
+        </div>
+
+        <div id="questionsList"></div>
+    </div>
+
+    <script>
+        let isExamMode = false;
+
+        function loadQuestions() {
+            const subject = document.getElementById('subjectSelect').value;
+            const type = document.getElementById('typeSelect').value;
+            const difficulty = document.getElementById('difficultySelect').value;
+
+            fetch(`/api/questions?subject=${subject}&type=${type}&difficulty=${difficulty}&is_exam=${isExamMode}`)
+                .then(response => response.json())
+                .then(questions => {
+                    const questionsList = document.getElementById('questionsList');
+                    questionsList.innerHTML = '';
+                    
+                    questions.forEach((question, index) => {
+                        const card = document.createElement('div');
+                        card.className = 'question-card bg-light';
+                        
+                        const difficultyText = ['简单', '较简单', '中等', '较难', '困难'][question.difficulty - 1];
+                        
+                        card.innerHTML = `
+                            <div class="no-print">
+                                <h5>${question.subject} - ${question.question_type}
+                                    <span class="badge bg-secondary difficulty-badge">${difficultyText}</span>
+                                </h5>
+                            </div>
+                            <p>${index + 1}. ${question.content}</p>
+                            ${question.options ? `<div class="options">${JSON.parse(question.options).join('<br>')}</div>` : ''}
+                            <div class="mt-3 no-print">
+                                <input type="text" class="form-control" placeholder="请输入答案">
+                                <button class="btn btn-primary mt-2" onclick="submitAnswer(${question.id})">提交答案</button>
+                            </div>
+                        `;
+                        
+                        questionsList.appendChild(card);
+                    });
+                });
+        }
+
+        function generateExam() {
+            isExamMode = true;
+            document.getElementById('examHeader').style.display = 'block';
+            loadQuestions();
+        }
+
+        function submitAnswer(questionId) {
+            const answerInput = event.target.parentElement.querySelector('input');
+            const userAnswer = answerInput.value.trim();
+            
+            if (!userAnswer) {
+                alert('请输入答案！');
+                return;
+            }
+
+            // 获取正确答案（这里需要从后端获取）
+            fetch(`/api/questions?subject=all&type=all&difficulty=all&is_exam=false`)
+                .then(response => response.json())
+                .then(questions => {
+                    const question = questions.find(q => q.id === questionId);
+                    if (!question) {
+                        alert('题目不存在！');
+                        return;
+                    }
+
+                    // 获取用户自信度
+                    const confidenceLevel = prompt('请评估您对这个答案的自信度（1-5，1表示非常不确定，5表示非常确定）：', '3');
+                    const confidence = parseInt(confidenceLevel) || 3;
+                    
+                    // 记录开始时间
+                    const startTime = new Date().getTime();
+                    
+                    // 提交答案到后端
+                    fetch('/api/submit_answer', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user_id: 1, // 临时使用固定用户ID
+                            question_id: questionId,
+                            answer: userAnswer,
+                            is_correct: userAnswer === question.answer,
+                            time_spent: Math.floor((new Date().getTime() - startTime) / 1000), // 计算答题用时（秒）
+                            confidence_level: confidence
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            if (userAnswer === question.answer) {
+                                alert('回答正确！');
+                                answerInput.style.backgroundColor = '#d4edda';
+                            } else {
+                                alert(`回答错误！正确答案是：${question.answer}`);
+                                answerInput.style.backgroundColor = '#f8d7da';
+                                
+                                // 获取解析
+                                fetch(`/api/question/${questionId}`)
+                                    .then(response => response.json())
+                                    .then(questionData => {
+                                        if (questionData.explanation) {
+                                            // 创建或更新解析显示区域
+                                            let explanationDiv = answerInput.parentElement.querySelector('.explanation');
+                                            if (!explanationDiv) {
+                                                explanationDiv = document.createElement('div');
+                                                explanationDiv.className = 'explanation mt-2 p-3 bg-light border rounded';
+                                                answerInput.parentElement.appendChild(explanationDiv);
+                                            }
+                                            explanationDiv.innerHTML = `
+                                                <strong>解析：</strong><br>
+                                                ${questionData.explanation}
+                                            `;
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('Error:', error);
+                                    });
+                            }
+                        } else {
+                            alert('提交答案失败！');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('提交答案时发生错误！');
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('获取题目信息时发生错误！');
+                });
+        }
+
+        function loadPersonalizedQuestions() {
+            isExamMode = false;
+            document.getElementById('examHeader').style.display = 'none';
+            
+            // 获取用户ID（这里暂时使用固定值1）
+            const userId = 1;
+            
+            // 获取当前选择的学科
+            const subject = document.getElementById('subjectSelect').value;
+            
+            console.log('Requesting personalized questions with params:', {
+                userId,
+                subject,
+                count: 10
+            });
+            
+            fetch(`/api/personalized_questions?user_id=${userId}&count=10&subject=${subject}`)
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(questions => {
+                    console.log('Received questions:', questions);
+                    const questionsList = document.getElementById('questionsList');
+                    questionsList.innerHTML = '';
+                    
+                    if (questions.error) {
+                        questionsList.innerHTML = `<div class="alert alert-danger">获取题目时出错：${questions.error}</div>`;
+                        return;
+                    }
+                    
+                    if (!Array.isArray(questions) || questions.length === 0) {
+                        questionsList.innerHTML = '<div class="alert alert-info">没有找到个性化题目，请先回答一些题目。</div>';
+                        return;
+                    }
+                    
+                    let subjectText = subject === 'all' ? '所有学科' : 
+                                     subject === 'math' ? '数学' : 
+                                     subject === 'chinese' ? '语文' : '英语';
+                    
+                    questionsList.innerHTML = `<div class="alert alert-success">这些${subjectText}题目是根据您的答题历史推荐的，特别针对您经常做错的题型。</div>`;
+                    
+                    questions.forEach((question, index) => {
+                        const card = document.createElement('div');
+                        card.className = 'question-card bg-light';
+                        
+                        const difficultyText = ['简单', '较简单', '中等', '较难', '困难'][question.difficulty - 1];
+                        
+                        card.innerHTML = `
+                            <div class="no-print">
+                                <h5>${question.subject} - ${question.question_type}
+                                    <span class="badge bg-secondary difficulty-badge">${difficultyText}</span>
+                                </h5>
+                            </div>
+                            <p>${index + 1}. ${question.content}</p>
+                            ${question.options ? `<div class="options">${JSON.parse(question.options).join('<br>')}</div>` : ''}
+                            <div class="mt-3 no-print">
+                                <input type="text" class="form-control" placeholder="请输入答案">
+                                <button class="btn btn-primary mt-2" onclick="submitAnswer(${question.id})">提交答案</button>
+                            </div>
+                        `;
+                        
+                        questionsList.appendChild(card);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    const questionsList = document.getElementById('questionsList');
+                    questionsList.innerHTML = `<div class="alert alert-danger">获取个性化题目时发生错误：${error.message}</div>`;
+                });
+        }
+
+        // 添加事件监听器
+        document.getElementById('subjectSelect').addEventListener('change', () => {
+            isExamMode = false;
+            document.getElementById('examHeader').style.display = 'none';
+            loadQuestions();
+        });
+        document.getElementById('typeSelect').addEventListener('change', () => {
+            isExamMode = false;
+            document.getElementById('examHeader').style.display = 'none';
+            loadQuestions();
+        });
+        document.getElementById('difficultySelect').addEventListener('change', () => {
+            isExamMode = false;
+            document.getElementById('examHeader').style.display = 'none';
+            loadQuestions();
+        });
+
+        // 初始加载
+        loadQuestions();
+    </script>
+</body>
+</html> 
